@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { LoaderCircle } from "lucide-react";
 import { motion } from "motion/react";
-import { Activity, useCallback, useEffect, useRef, useState } from "react";
+import { Activity, useState } from "react";
 import Masonry from "../components/masonry";
 import { Skeleton } from "../components/ui/skeleton";
 import { images } from "../constants";
@@ -11,10 +11,6 @@ export const Route = createFileRoute("/practice")({
 });
 
 const PAGE_SIZE = 10;
-const COLUMN_COUNT = 3;
-const GAP = 16;
-
-type Position = { x: number; y: number };
 
 // eslint-disable-next-line react-refresh/only-export-components
 function RouteComponent() {
@@ -22,73 +18,6 @@ function RouteComponent() {
 	const [isLoading, setIsLoading] = useState(false);
 
 	const hasMore = previewImages.length < images.length;
-
-	const refs = useRef<Record<string, HTMLDivElement | null>>({});
-	const [positions, setPositions] = useState<Record<string, Position>>({});
-	const [totalHeight, setTotalHeight] = useState(0);
-	const columnHeights = useRef<number[]>(new Array(COLUMN_COUNT).fill(0));
-	const loadedIds = useRef<Set<string>>(new Set());
-
-	const handleImageLoad = (id: string) => {
-		if (loadedIds.current.has(id)) return;
-		loadedIds.current.add(id);
-
-		const el = refs.current[id];
-		if (!el?.parentElement) return;
-
-		const containerWidth = el.parentElement.offsetWidth;
-		const colWidth = containerWidth / COLUMN_COUNT;
-		const heights = columnHeights.current;
-
-		const col = heights.indexOf(Math.min(...heights));
-		const x = col * (colWidth + GAP);
-		const y = heights[col];
-		heights[col] += el.offsetHeight + GAP;
-
-		setPositions((prev) => ({ ...prev, [id]: { x, y } }));
-		setTotalHeight(Math.max(...heights));
-	};
-
-	const recalculate = useCallback(() => {
-		const heights = new Array(COLUMN_COUNT).fill(0);
-		const newPositions: Record<string, Position> = {};
-
-		const anyEl = Object.values(refs.current).find(Boolean);
-		if (!anyEl?.parentElement) return;
-		const containerWidth = anyEl.parentElement.offsetWidth;
-		const colWidth = containerWidth / COLUMN_COUNT;
-
-		previewImages
-			.filter((img) => loadedIds.current.has(img.id))
-			.forEach((img) => {
-				const el = refs.current[img.id];
-				if (!el) return;
-
-				const col = heights.indexOf(Math.min(...heights));
-				newPositions[img.id] = {
-					x: col * (colWidth + GAP),
-					y: heights[col],
-				};
-
-				heights[col] += el.offsetHeight + GAP;
-				setPositions(newPositions);
-				setTotalHeight(Math.max(...heights));
-			});
-	}, [previewImages]);
-
-	useEffect(() => {
-		let timer: ReturnType<typeof setTimeout>;
-		const onResize = () => {
-			clearTimeout(timer);
-			timer = setTimeout(recalculate, 150);
-		};
-
-		window.addEventListener("resize", onResize);
-		return () => {
-			window.removeEventListener("resize", onResize);
-			clearTimeout(timer);
-		};
-	});
 
 	const loadMore = () => {
 		setIsLoading(true);
@@ -132,6 +61,9 @@ function RouteComponent() {
 					onViewportEnter={() => {
 						if (isLoading || !hasMore) return;
 						loadMore();
+					}}
+					viewport={{
+						margin: "0px 0px 400px 0px",
 					}}
 				/>
 
