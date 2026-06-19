@@ -1,7 +1,12 @@
 /* eslint-disable react-hooks/refs */
-import { motion } from "motion/react";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
 type Position = { x: number; y: number };
 
@@ -14,6 +19,7 @@ type MasonryProps<T extends MasonryItem> = {
 	items: T[];
 	columnCount: number;
 	gap: number;
+	parentRef?: RefObject<HTMLDivElement>;
 	renderItem: (arg: T, onLoad: () => void) => React.ReactNode;
 };
 
@@ -22,81 +28,86 @@ export default function Masonry<T extends MasonryItem>({
 	columnCount = 3,
 	gap = 16,
 	renderItem,
+	parentRef,
 }: MasonryProps<T>) {
 	const refs = useRef<Record<string, HTMLDivElement | null>>({});
 	const [positions, setPositions] = useState<Record<string, Position>>({});
 	const [totalHeight, setTotalHeight] = useState(0);
-	const columnHeights = useRef<number[]>(new Array(columnCount).fill(0));
+	const prevColumnCount = useRef(columnCount);
 	const loadedIds = useRef<Set<string>>(new Set());
+	const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+	const calculateLayout = useCallback(() => {
+		const anyEl = Object.values(refs.current).find(Boolean);
+		if (!anyEl?.parentElement) return;
+
+		const containerWidth = anyEl.parentElement.offsetWidth;
+		const colWidth = containerWidth / columnCount;
+		const heights = new Array(columnCount).fill(0);
+		const newPositions: Record<string, Position> = {};
+
+		items.forEach((item) => {
+			const el = refs.current[item.id];
+			if (!el || !loadedIds.current.has(item.id)) return;
+
+			const col = heights.indexOf(Math.min(...heights));
+			newPositions[item.id] = {
+				x: col * (colWidth + gap),
+				y: heights[col],
+			};
+			heights[col] += el.offsetHeight + gap * 2;
+		});
+
+		setPositions(newPositions);
+		setTotalHeight(Math.max(...heights, 0));
+	}, [columnCount, gap, items]);
+
+	const queneLayout = useCallback(() => {
+		clearTimeout(timeoutRef.current);
+
+		timeoutRef.current = setTimeout(calculateLayout, 150);
+	}, [calculateLayout]);
 
 	const handleItemLoad = useCallback(
 		(id: string) => {
 			if (loadedIds.current.has(id)) return;
 			loadedIds.current.add(id);
 
-			const el = refs.current[id];
-			if (!el?.parentElement) return;
-
-			const containerWidth = el.parentElement.offsetWidth;
-			const colWidth = containerWidth / columnCount;
-			const heights = columnHeights.current;
-
-			const col = heights.indexOf(Math.min(...heights));
-			const x = col * (colWidth + gap);
-			const y = heights[col];
-			heights[col] += el.offsetHeight + gap;
-
-			setPositions((prev) => ({ ...prev, [id]: { x, y } }));
-			setTotalHeight(Math.max(...heights));
+			queneLayout();
 		},
-		[columnCount, gap],
+		[queneLayout],
 	);
 
-	const recalculate = useCallback(() => {
-		const heights = new Array(columnCount).fill(0);
-		const newPositions: Record<string, Position> = {};
+	useEffect(() => {
+		if (parentRef?.current) {
+			const observer = new ResizeObserver(queneLayout);
+			observer.observe(parentRef.current);
+			return () => observer.disconnect();
+		}
 
-		const anyEl = Object.values(refs.current).find(Boolean);
-		if (!anyEl?.parentElement) return;
-		const containerWidth = anyEl.parentElement.offsetWidth;
-		const colWidth = containerWidth / columnCount;
-
-		items
-			.filter((img) => loadedIds.current.has(img.id))
-			.forEach((img) => {
-				const el = refs.current[img.id];
-				if (!el) return;
-
-				const col = heights.indexOf(Math.min(...heights));
-				newPositions[img.id] = {
-					x: col * (colWidth + gap),
-					y: heights[col],
-				};
-
-				heights[col] += el.offsetHeight + gap;
-				setPositions(newPositions);
-				setTotalHeight(Math.max(...heights));
-			});
-	}, [columnCount, gap, items]);
+		window.addEventListener("resize", queneLayout);
+		return () => {
+			window.removeEventListener("resize", queneLayout);
+		};
+	}, [parentRef, queneLayout]);
 
 	useEffect(() => {
-		let timer: ReturnType<typeof setTimeout>;
-		const onResize = () => {
-			clearTimeout(timer);
-			timer = setTimeout(recalculate, 150);
-		};
-
-		window.addEventListener("resize", onResize);
-		return () => {
-			window.removeEventListener("resize", onResize);
-			clearTimeout(timer);
-		};
-	});
+		if (prevColumnCount.current !== columnCount) {
+			prevColumnCount.current = columnCount;
+			calculateLayout();
+			console.count("resize observer");
+		}
+	}, [calculateLayout, columnCount]);
 
 	return (
-		<div style={{ position: "relative", height: totalHeight }}>
+		<div
+			style={{
+				position: "relative",
+				height: totalHeight,
+			}}
+		>
 			{items.map((item) => (
-				<motion.div
+				<div
 					key={item.id}
 					ref={(el: HTMLDivElement) => {
 						refs.current[item.id] = el;
@@ -108,11 +119,11 @@ export default function Masonry<T extends MasonryItem>({
 							: "none",
 						opacity: positions[item.id] ? 1 : 0,
 						width: `calc(${100 / columnCount}% - ${gap}px)`,
-						// transition: "transform 0.2s ease, opacity 0.2s ease",
+						transition: "transform 0.2s ease, opacity 0.2s ease",
 					}}
 				>
 					{renderItem(item, () => handleItemLoad(item.id))}
-				</motion.div>
+				</div>
 			))}
 		</div>
 	);
